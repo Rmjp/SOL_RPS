@@ -5,6 +5,7 @@ pragma solidity >=0.7.0 <0.9.0;
 
 import "./CommitReveal.sol";
 import "./TimeUnit.sol";
+import "./IERC20.sol";
 
 contract RPS{
     uint public numPlayer = 0;
@@ -19,22 +20,28 @@ contract RPS{
     uint public constant TIME_TO_COMMIT = 5;
     uint public constant TIME_TO_REVEAL = 5;
 
+    IERC20 public token;                 // reference ไปยัง ERC20 token ที่จะใช้
+    uint256 public constant STAKE_AMOUNT = 10**12;
+
     uint public numInput = 0;
     mapping(address => CommitReveal) public cr;
 
-    function addPlayer() public payable onlyAcc {
-        require(numPlayer < 2);
-        if (numPlayer > 0) {
-            require(msg.sender != players[0], "not the same");
+    function addPlayer() public payable {
+        require(numPlayer < 2, "Already have 2 players");
+        if (numPlayer == 1) {
+            require(msg.sender != players[0], "You are already in the game");
         }
-        require(msg.value == 1 ether);
-        reward += msg.value;
+
         player_not_played[msg.sender] = true;
         player_not_reveal[msg.sender] = true;
         players.push(msg.sender);
         numPlayer++;
+
+        // สร้าง CommitReveal instance ให้ผู้เล่น
         cr[msg.sender] = new CommitReveal();
-        if (numPlayer == 2){
+
+        // ถ้าผู้เล่นครบ 2 คนแล้ว ให้เริ่มนับเวลา Commit
+        if (numPlayer == 2) {
             commitTime.setStartTime();
         }
     }
@@ -47,6 +54,16 @@ contract RPS{
         numInput++;
         cr[msg.sender].commit(choice);
         if (numInput == 2) {
+            require(token.allowance(players[0], address(this)) >= STAKE_AMOUNT, "Player0 allowance not enough");
+            require(token.allowance(players[1], address(this)) >= STAKE_AMOUNT, "Player1 allowance not enough");
+
+            // 2) ดึงเงินจากแต่ละคนเข้ามาในคอนแทรกต์
+            bool success0 = token.transferFrom(players[0], address(this), STAKE_AMOUNT);
+            bool success1 = token.transferFrom(players[1], address(this), STAKE_AMOUNT);
+            require(success0 && success1, "transferFrom failed");
+
+            // 3) รวมเป็น reward
+            reward = STAKE_AMOUNT * 2;
             revealTime.setStartTime();
         }
     }
@@ -68,46 +85,90 @@ contract RPS{
     function _checkWinnerAndPay() private {
         uint p0Choice = player_choice[players[0]];
         uint p1Choice = player_choice[players[1]];
-        address payable account0 = payable(players[0]);
-        address payable account1 = payable(players[1]);
+        address account0 = players[0];
+        address account1 = players[1];
+
+        // Rock-Paper-Scissors เวอร์ชันเสริม (mod 5)
+        // (p0 + 1) % 5 == p1  หรือ (p0 + 3) % 5 == p1 -> p1 ชนะ
+        // ถ้าเท่ากัน -> เสมอ
+        // ไม่เข้าเงื่อนไขข้างบน -> p0 ชนะ
         if ((p0Choice + 1) % 5 == p1Choice || (p0Choice + 3) % 5 == p1Choice) {
-            // to pay player[1]
-            account1.transfer(reward);
+            // player[1] ชนะ
+            token.transfer(account1, reward);
         }
         else if (p1Choice == p0Choice) {
-            account0.transfer(reward / 2);
-            account1.transfer(reward / 2);
+            // เสมอ แบ่งคนละครึ่ง
+            token.transfer(account0, reward / 2);
+            token.transfer(account1, reward / 2);
         }
         else {
-            account0.transfer(reward); 
+            // player[0] ชนะ
+            token.transfer(account0, reward);
         }
+
         _reset();
     }
 
-    function cancle() public {
-        if(numPlayer < 2){
-            for (uint i = 0; i < players.length; i++) {
-                payable(players[i]).transfer(reward);
+    function withdrawIfTimeout() external {
+        // ต้องหมดเวลา reveal ก่อน
+        require(revealTime.elapsedMinutes() >= TIME_TO_REVEAL, "Reveal phase not timed out yet");
+        // ต้องมีเงินในคอนแทรกต์ (ถ้าไม่มี แปลว่าไม่มีใคร commit ครบ 2)
+        require(reward > 0, "No reward in contract");
+
+        // Case 1: reveal มาคนเดียว
+        if (revealNum == 1) {
+            // ดูว่าใครคือคนที่ reveal
+            bool p0Revealed = (player_not_reveal[players[0]] == false);
+            bool p1Revealed = (player_not_reveal[players[1]] == false);
+
+            if (p0Revealed && !p1Revealed) {
+                require(msg.sender == players[0], "Only the revealer can withdraw");
+                token.transfer(players[0], reward);
             }
-            _reset();
-            return ;
-        }
-        if (numInput < 2 && commitTime.elapsedMinutes() >= TIME_TO_COMMIT){
-            for (uint i = 0; i < players.length; i++) {
-                payable(players[i]).transfer(reward/2);
+            else if (!p0Revealed && p1Revealed) {
+                require(msg.sender == players[1], "Only the revealer can withdraw");
+                token.transfer(players[1], reward);
             }
-            _reset();
-            return ;
-        }
-        if (numInput == 2 && revealNum < 2 && revealTime.elapsedMinutes() >= TIME_TO_REVEAL){
-            for (uint i = 0; i < players.length; i++) {
-                payable(players[i]).transfer(reward/2);
+            else {
+                revert("Invalid state");
             }
-            _reset();
-            return ;
         }
-        require(false, "dont meet condition");
+        // Case 2: ไม่มีใคร reveal
+        else if (revealNum == 0) {
+            // ใครก็ได้มาเอาเงินไป
+            token.transfer(msg.sender, reward);
+        }
+        else {
+            revert("Both players revealed - not applicable here");
+        }
+
+        _reset();
     }
+
+    // function cancle() public {
+    //     if(numPlayer < 2){
+    //         for (uint i = 0; i < players.length; i++) {
+    //             payable(players[i]).transfer(reward);
+    //         }
+    //         _reset();
+    //         return ;
+    //     }
+    //     if (numInput < 2 && commitTime.elapsedMinutes() >= TIME_TO_COMMIT){
+    //         for (uint i = 0; i < players.length; i++) {
+    //             payable(players[i]).transfer(reward/2);
+    //         }
+    //         _reset();
+    //         return ;
+    //     }
+    //     if (numInput == 2 && revealNum < 2 && revealTime.elapsedMinutes() >= TIME_TO_REVEAL){
+    //         for (uint i = 0; i < players.length; i++) {
+    //             payable(players[i]).transfer(reward/2);
+    //         }
+    //         _reset();
+    //         return ;
+    //     }
+    //     require(false, "dont meet condition");
+    // }
 
 
     function _reset() private {
