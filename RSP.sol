@@ -26,6 +26,12 @@ contract RPS{
     uint public numInput = 0;
     mapping(address => CommitReveal) public cr;
 
+    constructor(
+        address _token
+    ) {
+        token = IERC20(_token);
+    }
+
     function addPlayer() public payable {
         require(numPlayer < 2, "Already have 2 players");
         if (numPlayer == 1) {

@@ -6,6 +6,17 @@
 	"output": {
 		"abi": [
 			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "_token",
+						"type": "address"
+					}
+				],
+				"stateMutability": "nonpayable",
+				"type": "constructor"
+			},
+			{
 				"inputs": [],
 				"name": "STAKE_AMOUNT",
 				"outputs": [
@@ -334,11 +345,11 @@
 			]
 		},
 		"RSP.sol": {
-			"keccak256": "0xbddb3fa060cd1a21e95cd33e3f3488144a18e2794c283c48b0a2d04d2546e46c",
+			"keccak256": "0xe1a173f8fc1b6333ff84cd4345c2a6fe60299a5421f57003b86ba4ca6073b466",
 			"license": "GPL-3.0",
 			"urls": [
-				"bzz-raw://c1ab662718b77b3296bc070f86ccb922eb713af100c371a1bebb502b827fa5cd",
-				"dweb:/ipfs/QmPKjVrjpLeWLCYUJ6MnP964xAibXYfafz495NyxmMjAq8"
+				"bzz-raw://06273d6e397e8291adee21384b3dbba5ce090f94bf6b20e65d097e1ae3a15463",
+				"dweb:/ipfs/QmVhXe3oKpEaYcVBU7Vc6A61aKjuMBitnha4NsSY8THvJg"
 			]
 		},
 		"TimeUnit.sol": {
